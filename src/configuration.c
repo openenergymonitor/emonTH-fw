@@ -37,19 +37,19 @@ typedef struct CmdArgs_ {
  *************************************/
 
 static bool        configCheckUnsaved(void);
-static bool        configDatalog(void);
+static void        configDatalog(void);
 static void        configDefault(void);
-static bool        configExtTempMax(void);
-static bool        configJSON(void);
+static void        configExtTempMax(void);
+static void        configJSON(void);
 static bool        configProcessCmd(void);
-static bool        configPulse(void);
+static void        configPulse(void);
 static void        configRestore(void);
-static bool        configRF433(void);
-static bool        configRFM(void);
-static bool        configRFPower(void);
+static void        configRF433(void);
+static void        configRFM(void);
+static void        configRFPower(void);
 static void        configSaveToNVM(void);
-static bool        configCO2(void);
-static bool        configUART(void);
+static void        configCO2(void);
+static void        configUART(void);
 static const char *getLastReset(void);
 static void        inBufferClear(void);
 static CmdArgs_t   inBufferTok(void);
@@ -90,33 +90,32 @@ static bool configCheckUnsaved(void) {
   return (0 != memcmp(&config, &configNVM, sizeof(config)));
 }
 
-static bool configDatalog(void) {
+static void configDatalog(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u16 < 5u) {
     uartPutsError("sample period must be greater than 4 s\r\n");
-    return false;
+    return;
   }
   if (convU.val.u32 > RTC_PERIOD_MAX_SECONDS) {
     uartPutsError("sample period exceeds RTC maximum");
-    return false;
+    return;
   }
   if (convU.val.u32 > config.scdCfg.sampleInterval) {
     uartPutsError("sample period must not exceed CO2 sample interval");
-    return false;
+    return;
   }
 
   config.baseCfg.reportTime = convU.val.u16;
   printSettingPeriod();
-  return true;
 }
 
 /*! @brief Set all configuration values to defaults */
@@ -141,72 +140,69 @@ static void configDefault(void) {
   config.scdCfg.sampleInterval = 600u; // 10 minute CO2 sampling
 }
 
-static bool configExtTempMax(void) {
+static void configExtTempMax(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   /* Must be 0, 1 or 4 */
   if ((0 != convU.val.u8) && (1u != convU.val.u8) && (4u != convU.val.u8)) {
     uartPutsError("must be in [0,1,4]\r\n");
-    return false;
+    return;
   }
 
   config.baseCfg.extTempEn = convU.val.u8;
-  return true;
 }
 
-static bool configJSON(void) {
+static void configJSON(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   config.baseCfg.useJson = (bool)convU.val.u8;
   printSettingJSON();
-  return true;
 }
 
-static bool configNodeID(void) {
+static void configNodeID(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if ((convU.val.u8 < 1u) || (convU.val.u8 > 60u)) {
     uartPutsError("ID must be [1..60]\r\n");
-    return false;
+    return;
   }
 
   config.baseCfg.nodeID = convU.val.u8;
 
   printSettingRF();
-  return true;
 }
 
-static bool configPulse(void) {
+static void configPulse(void) {
   ConvUint_t convU;
   bool       active   = 0;
   uint8_t    pu       = 0;
@@ -215,29 +211,29 @@ static bool configPulse(void) {
   if ((cmdArgs.argv[0][1] != '\0') ||
       ((2u != cmdArgs.argc) && (4u != cmdArgs.argc))) {
     uartPutsError("expected active, pull, and period");
-    return false;
+    return;
   }
 
   convU = utilAtoui(cmdArgs.argv[1], ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
   active = (bool)convU.val.u8;
 
   if (!active) {
     config.pulseCfg.active = false;
     printSettingPulse();
-    return true;
+    return;
   }
 
   if (4u != cmdArgs.argc) {
     uartPutsError("expected pull and period");
-    return false;
+    return;
   }
 
   const char pull = cmdArgs.argv[2][0];
@@ -257,13 +253,13 @@ static bool configPulse(void) {
     }
   } else {
     uartPutsError("invalid pull configuration (u, d, n).");
-    return false;
+    return;
   }
 
   convU = utilAtoui(cmdArgs.argv[3], ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   timeMask = convU.val.u8;
 
@@ -272,7 +268,6 @@ static bool configPulse(void) {
   config.pulseCfg.timeMask = timeMask;
 
   printSettingPulse();
-  return true;
 }
 
 static void configRestore(void) {
@@ -291,45 +286,44 @@ static void configRestore(void) {
   }
 }
 
-static bool configRF433(void) {
+static void configRF433(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
 
   if (!convU.valid || (convU.val.u8 > 1u)) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   /* Only applies to 433 MHz ISM band */
   if (!((config.dataTxCfg.rfmFreq == 2u) || (config.dataTxCfg.rfmFreq == 3u))) {
     uartPutsError("only for 433 MHz ISM\r\n");
-    return false;
+    return;
   }
 
   config.dataTxCfg.rfmFreq = (0 == convU.val.u8) ? 3u : 2u;
 
   printSettingRF();
-  return true;
 }
 
-static bool configRFM(void) {
+static void configRFM(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8) {
     config.dataTxCfg.txType |= (1u << 0);
@@ -338,45 +332,43 @@ static bool configRFM(void) {
   }
 
   printSettingRF();
-  return true;
 }
 
-static bool configRFPower(void) {
+static void configRFPower(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if ((convU.val.u8 == 0) || (convU.val.u8 > 31)) {
     uartPutsError("power must be in range [1..31]\r\n");
-    return false;
+    return;
   }
 
   config.dataTxCfg.rfmPwr = convU.val.u8;
 
   printSettingRF();
-  return true;
 }
 
-static bool configCO2(void) {
+static void configCO2(void) {
 
   if (2u > cmdArgs.argc) {
     uartPutsError("expected at least altitude");
-    return false;
+    return;
   } else if (3u < cmdArgs.argc) {
     uartPutsError("unexpected argument");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[1], ITOA_BASE10);
   if (!convU.valid) {
     uartPutsError("invalid altitude.");
-    return false;
+    return;
   } else {
     config.scdCfg.altitude = convU.val.u16;
   }
@@ -386,38 +378,37 @@ static bool configCO2(void) {
     convU = utilAtoui(cmdArgs.argv[2], ITOA_BASE10);
     if (!convU.valid) {
       uartPutsError("invalid sample time.");
-      return false;
+      return;
     }
     if (convU.val.u32 < config.baseCfg.reportTime) {
       uartPutsError("sample interval must be at least the report period");
-      return false;
+      return;
     }
     if (convU.val.u32 > 0xFFFFu) {
       uartPutsError("sample interval exceeds storage maximum");
-      return false;
+      return;
     }
     config.scdCfg.sampleInterval = convU.val.u16;
   }
 
   printSettingCO2();
-  return true;
 }
 
-static bool configUART(void) {
+static void configUART(void) {
   if (1u != cmdArgs.argc) {
     uartPutsError("unexpected arguments");
-    return false;
+    return;
   }
 
   ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   if (convU.val.u8) {
@@ -427,7 +418,6 @@ static bool configUART(void) {
   }
 
   printSettingUART();
-  return true;
 }
 
 /*! @brief Get the last reset cause (21.8.1)
@@ -841,16 +831,16 @@ static bool configProcessCmd(void) {
     }
     break;
   case 'a':
-    (void)configCO2();
+    configCO2();
     break;
   case 'c':
-    (void)configUART();
+    configUART();
     break;
   case 'd':
-    (void)configDatalog();
+    configDatalog();
     break;
   case 'e':
-    (void)configExtTempMax();
+    configExtTempMax();
     break;
   case 'f':
     if (requireExactArgs(1u)) {
@@ -858,19 +848,19 @@ static bool configProcessCmd(void) {
     }
     break;
   case 'j':
-    (void)configJSON();
+    configJSON();
     break;
   case 'l':
     printSettings();
     break;
   case 'm':
-    (void)configPulse();
+    configPulse();
     break;
   case 'n':
-    (void)configNodeID();
+    configNodeID();
     break;
   case 'p':
-    (void)configRFPower();
+    configRFPower();
     break;
   case 'r':
     configRestore();
@@ -886,10 +876,10 @@ static bool configProcessCmd(void) {
     }
     break;
   case 'w':
-    (void)configRFM();
+    configRFM();
     break;
   case 'x':
-    (void)configRF433();
+    configRF433();
     break;
   default:
     uartPutsError("unknown command");
