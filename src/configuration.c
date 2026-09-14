@@ -41,7 +41,6 @@ static bool        configDatalog(void);
 static void        configDefault(void);
 static bool        configExtTempMax(void);
 static bool        configJSON(void);
-static bool        configOneWire(void);
 static bool        configProcessCmd(void);
 static bool        configPulse(void);
 static void        configRestore(void);
@@ -183,30 +182,6 @@ static bool configJSON(void) {
   config.baseCfg.useJson = (bool)convU.val.u8;
   printSettingJSON();
   return true;
-}
-
-static bool configOneWire(void) {
-  if (9u != cmdArgs.argc) {
-    uartPutsError("expected slot and 8 address bytes");
-    return false;
-  }
-
-  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
-  if (!convU.valid || (0u == convU.val.u8) ||
-      (convU.val.u8 > TEMP_MAX_ONEWIRE)) {
-    printInvalidVal();
-    return false;
-  }
-
-  for (size_t i = 1; i < cmdArgs.argc; i++) {
-    convU = utilAtoui(cmdArgs.argv[i], ITOA_BASE16);
-    if (!convU.valid || (convU.val.u32 > 0xFFu)) {
-      printInvalidVal();
-      return false;
-    }
-  }
-
-  return false;
 }
 
 static bool configNodeID(void) {
@@ -828,10 +803,6 @@ static bool configProcessCmd(void) {
       " - p<n>          : set the RF power level\r\n"
       " - r[s]          : restore defaults, rs to restore saved config\r\n"
       " - s             : save settings to NVM\r\n"
-      " - t<x> <yy> <yy> <yy> <yy> <yy> <yy> <yy> <yy>\r\n"
-      "   : change an external sensor's position\r\n"
-      "     - x: position of sensor in the list (1-based)\r\n"
-      "     - yy : hexadecimal bytes, e.g. 28 81 43 31 07 00 00 D9\r\n"
       " - v             : firmware and board information\r\n"
       " - w<n>          : enable wireless. n = 0: OFF, n = 1: ON\r\n"
       " - x<n>          : 433 MHz compatibility. n = 0: 433.92 MHz, n = 1: "
@@ -908,9 +879,6 @@ static bool configProcessCmd(void) {
     if (requireExactArgs(1u)) {
       configSaveToNVM();
     }
-    break;
-  case 't':
-    (void)configOneWire();
     break;
   case 'v':
     if (requireExactArgs(1u)) {

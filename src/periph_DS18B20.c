@@ -28,7 +28,6 @@ typedef struct __attribute__((__packed__)) Scratch_ {
 
 /* Device address table */
 static DS18B20_Slot_t slots[TEMP_MAX_ONEWIRE];
-static unsigned int   addressRemap[TEMP_MAX_ONEWIRE];
 static volatile bool  rstPulseComplete = false;
 
 /* OneWire functions & state variables */
@@ -308,11 +307,6 @@ size_t ds18b20InitSensors(DS18B20_Slot_t *pSlot) {
     searchResult = oneWireNext();
   }
 
-  /* REVISIT assign addresses from NVM to slots */
-  for (size_t i = 0; i < TEMP_MAX_ONEWIRE; i++) {
-    addressRemap[i] = i;
-  }
-
   for (size_t i = 0; i < deviceCount; i++) {
     slots[i].active  = true;
     slots[i].address = pSlot[i].address;
@@ -347,7 +341,7 @@ DS18B20_Res_t ds18b20ReadSample(const unsigned int dev) {
   static const int16_t DS_TNEG55DEG     = -880;
   static const int16_t DS_T125DEG       = 2000;
 
-  const uint64_t *addrDev = &slots[addressRemap[dev]].address;
+  const uint64_t *addrDev = &slots[dev].address;
   Scratch_t       scratch = {0};
   const uint8_t  *si      = (uint8_t *)&scratch;
   uint8_t         crcDS   = 0;
