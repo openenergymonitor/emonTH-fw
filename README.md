@@ -106,7 +106,7 @@ Assuming default node ID of 27.
         [[[rx]]]
             names = temperature, external temperature, humidity, battery, pulsecount, co2
             datacodes = h, h, h, h, L, h
-            scales = 0.1, 0.1, 0.1, 0.01, 1, 1
+            scales = 0.1, 0.01, 0.1, 0.01, 1, 1
             units = C, C, %, V, p, ppm
 ```
 
@@ -117,7 +117,7 @@ Assuming default node ID of 27.
         [[[rx]]]
             names = temperature, external temperature1, external temperature2, external temperature3, external temperature4, humidity, battery, pulsecount, co2
             datacodes = h, h, h, h, h, h, h, L, h
-            scales = 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 1, 1
+            scales = 0.1, 0.01, 0.01, 0.01, 0.01, 0.1, 0.01, 1, 1
             units = C, C, C, C, C, %, V, p, ppm
 ```
 
