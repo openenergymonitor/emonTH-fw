@@ -39,6 +39,10 @@ NVMStatus_t nvmDataFlashRead(const NVMPage_t page) {
     return NVM_READ_NO_INIT;
   }
 
+  if (header->n > (FLASH_PAGE_SIZE - sizeof(*header))) {
+    return NVM_READ_BAD_CRC;
+  }
+
   if (calcCRC16_ccitt(pageBuffer + sizeof(*header), header->n) !=
       header->crc16) {
     return NVM_READ_BAD_CRC;

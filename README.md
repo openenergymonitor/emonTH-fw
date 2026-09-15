@@ -48,12 +48,12 @@ A UART is provided for configuration and, optionally, data transmission. It has 
 - The DIP switches set the node ID for the device. They are read at power on.
 - Each DIP switch addess adds 1 to the base node ID (default 27):
 
-  | Switch 1 | Switch 2 | ID         | Default Base-ID=27 |
+  | Switch 1 | Switch 2 | ID         | ID |
   |----------|----------|----------  |------------------|
   | OFF      |  OFF     |  base-ID   |27 |
   |  ON      |  OFF     |  base-ID+1 |28 |
   | OFF      |  ON      |  base-ID+2 |29 |
-  | ON       | ON       | base-ID+3  |30 |
+  | ON (default)      | ON (default)       | base-ID+3 (default)  |30 (default) |
 
 
 ### Run time configuration
@@ -68,7 +68,7 @@ The following options are available through the serial configuration interface.
 | Command | Description | Arguments |
 |---------|-------------|-----------|
 | `?` | Show help text | None |
-| `a<n> <m>` | Configure the SCD4x CO2 sensor | `n`: sample interval (s)<br>`m`: altitude above sea level (m) |
+| `a <a> <t>` | Configure CO2 sensors | `a`: altitude above sea level (m)<br>`t`: sample interval (s), optional for SCD4x only |
 | `c<n>` | Enable UART output | `0`: off, `1`: on |
 | `d<n>` | Set the data acquisition period | `n`: period value |
 | `e<n>` | Set the number of external temperature sensors | `0`, `1`, or `4` |
@@ -79,9 +79,8 @@ The following options are available through the serial configuration interface.
 | `m <x> <y> <z>` | Configure pulse counting | `x`: `0` off, `1` on<br>`y`: `n` no pull, `d` pull down, `u` pull up<br>`z`: minimum pulse period (ms) |
 | `n<n>` | Set node ID | `[1..60]` |
 | `p<n>` | Set RF power level | `n`: RF power level |
-| `r` | Restore defaults | None |
+| `r[s]` | Restore defaults, `rs` to restore saved settings | None |
 | `s` | Save settings to NVM | None |
-| `t<x> <yy> <yy> <yy> <yy> <yy> <yy> <yy> <yy>` | Change an external sensor's position | `x`: sensor position in the list (1-based)<br>`yy`: hexadecimal address bytes, e.g. `28 81 43 31 07 00 00 D9` |
 | `v` | Print firmware and board information | None |
 | `w<n>` | Enable wireless | `0`: off, `1`: on |
 | `x<n>` | Set 433 MHz compatibility | `0`: `433.92 MHz`, `1`: `433.00 MHz` |
@@ -89,8 +88,8 @@ The following options are available through the serial configuration interface.
 ### Run time
 
 - The LED indicator will flash for the first 5 transmissions then be disabled for power saving
-- By default UART output is disabled during runtime. It can be enabled during runtime by sending `c1` over the serial interface.
-- The default transmission period is 55s. This can be changed during runtime by sending `d<n>` over the serial interface, where `n` is the period in seconds.
+- By default UART output is disabled during runtime. It can be enabled using the command `c1` over the serial interface while in the configuration phase
+- The default transmission period is 55s. This can be changed using the command `d<n>` over the serial interface, where `n` is the period in seconds, while in the configuration phase.
 
 
 ## EmonHub Decoders
@@ -152,11 +151,11 @@ To build the firmware:
 
 In `bin/`, the following binary files will be generated:
 
-- `emonTH-vX.Y.Z-(commit[-dirty]).bin`
-- `emonTH-vX.Y.Z-(commit[-dirty]).elf`
-- `emonTH-vX.Y.Z-(commit[-dirty]).hex`
+- `emonTH-<nearest-tag>-<git-describe>.bin`
+- `emonTH-<nearest-tag>-<git-describe>.elf`
+- `emonTH-<nearest-tag>-<git-describe>.hex`
 
-The `-dirty` tag (if present) indicates that there are uncommitted changes when the binaries are built.
+`<nearest-tag>` is the closest Git tag. `<git-describe>` is the output of `git describe --always --dirty`. The `-dirty` suffix, if present, indicates uncommitted changes when the binaries are built.
 
 ### Uploading
 

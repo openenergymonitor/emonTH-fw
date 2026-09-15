@@ -15,15 +15,23 @@ static RTC_Evt_t rtcEvt[EVT_MAX]    = {0};
 static uint16_t rtcPeriod = 0;
 
 static uint32_t intervalToRatio(const uint32_t smpIntTime) {
+  EMONTH_ASSERT(rtcPeriod >= RTC_PERIOD_MIN_SECONDS);
+  EMONTH_ASSERT(smpIntTime >= rtcPeriod);
+
   uint32_t rem = smpIntTime % rtcPeriod;
   uint32_t div = smpIntTime / rtcPeriod;
   if (rem > (rtcPeriod / 2u)) {
     div++;
   }
+
+  EMONTH_ASSERT(div > 0u);
   return div;
 }
 
 void rtcEnable(const uint16_t period) {
+  EMONTH_ASSERT(period >= RTC_PERIOD_MIN_SECONDS);
+  EMONTH_ASSERT(period <= RTC_PERIOD_MAX_SECONDS);
+
   rtcPeriod = period;
 
   /* Convert sample intervals in seconds to ratio of report times */

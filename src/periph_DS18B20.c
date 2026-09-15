@@ -28,7 +28,6 @@ typedef struct __attribute__((__packed__)) Scratch_ {
 
 /* Device address table */
 static DS18B20_Slot_t slots[TEMP_MAX_ONEWIRE];
-static unsigned int   addressRemap[TEMP_MAX_ONEWIRE];
 static volatile bool  rstPulseComplete = false;
 
 /* OneWire functions & state variables */
@@ -46,7 +45,6 @@ static void         oneWireWriteBytes(const void *pSrc, const size_t n);
 static void         setRstPulseComplete(void);
 
 static uint64_t ROM_NO;
-static uint8_t  crc8;
 static int32_t  lastDiscrepancy;
 static int32_t  lastFamilyDiscrepancy;
 static bool     lastDeviceFlag;
@@ -177,6 +175,7 @@ static bool oneWireSearch(void) {
   bool     searchResult    = false;
   uint8_t  idBit           = 0;
   uint8_t  cmpidBit        = 0;
+  uint8_t  crc8            = 0;
   uint8_t *romBuffer       = (uint8_t *)&ROM_NO;
 
   /* If the last call was not the last one... */
@@ -308,11 +307,6 @@ size_t ds18b20InitSensors(DS18B20_Slot_t *pSlot) {
     searchResult = oneWireNext();
   }
 
-  /* REVISIT assign addresses from NVM to slots */
-  for (size_t i = 0; i < TEMP_MAX_ONEWIRE; i++) {
-    addressRemap[i] = i;
-  }
-
   for (size_t i = 0; i < deviceCount; i++) {
     slots[i].active  = true;
     slots[i].address = pSlot[i].address;
@@ -347,15 +341,15 @@ DS18B20_Res_t ds18b20ReadSample(const unsigned int dev) {
   static const int16_t DS_TNEG55DEG     = -880;
   static const int16_t DS_T125DEG       = 2000;
 
-  const uint64_t *addrDev = &slots[addressRemap[dev]].address;
+  const uint64_t *addrDev = &slots[dev].address;
   Scratch_t       scratch = {0};
   const uint8_t  *si      = (uint8_t *)&scratch;
   uint8_t         crcDS   = 0;
   DS18B20_Res_t   tempRes = {0};
 
-  /* 304ºC indicates a bad temperature reading. */
+  /* Initialise with the bad-temperature sentinel. */
   tempRes.status = TEMP_OK;
-  tempRes.temp   = 30400;
+  tempRes.temp   = TEMP_ONEWIRE_RAW_FAILED;
 
   /* Check for presence pulse before continuing */
   if (!oneWireReset()) {
@@ -370,14 +364,13 @@ DS18B20_Res_t ds18b20ReadSample(const unsigned int dev) {
 
   /* Check CRC for received data */
   for (size_t i = 0; i < (sizeof(scratch) - 1); i++) {
-    calcCRC8(crcDS, si[i]);
+    crcDS = calcCRC8(crcDS, si[i]);
   }
 
-  /* REVISIT : CRC is not being calculated correctly */
-  // if (crcDS != scratch.crc) {
-  //   tempRes.status = TEMP_BAD_CRC;
-  //   return tempRes;
-  // }
+  if (crcDS != scratch.crc) {
+    tempRes.status = TEMP_BAD_CRC;
+    return tempRes;
+  }
 
   /* The DS18B20's configuration register must not be zero (Figure 10) */
   if (!scratch.cfg) {

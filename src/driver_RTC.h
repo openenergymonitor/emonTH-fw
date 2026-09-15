@@ -4,6 +4,9 @@
 
 #include "emonTH.h"
 
+#define RTC_PERIOD_MIN_SECONDS 1u
+#define RTC_PERIOD_MAX_SECONDS 16384u
+
 typedef struct RTC_Evt_ {
   uint16_t smpInterval; /* Sample interval (s) */
   EVTSRC_t evt;         /* Event ID */

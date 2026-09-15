@@ -5,6 +5,7 @@
 
 #include "driver_NVM.h"
 #include "driver_PORT.h"
+#include "driver_RTC.h"
 #include "driver_SAML.h"
 #include "driver_SERCOM.h"
 
@@ -26,26 +27,34 @@ typedef enum {
   RCAUSE_POR   = 0x01
 } RCAUSE_t;
 
+typedef struct CmdArgs_ {
+  char  *argv[10];
+  size_t argc;
+} CmdArgs_t;
+
 /*************************************
  * Prototypes
  *************************************/
 
-static bool        configDatalog(void);
+static bool        configCheckUnsaved(void);
+static void        configDatalog(void);
 static void        configDefault(void);
-static bool        configExtTempMax(void);
-static bool        configJSON(void);
-static bool        configOneWire(void);
+static void        configExtTempMax(void);
+static void        configJSON(void);
 static bool        configProcessCmd(void);
-static bool        configPulse(void);
-static bool        configRF433(void);
-static bool        configRFM(void);
-static bool        configRFPower(void);
+static void        configPulse(void);
+static void        configRestore(void);
+static void        configRF433(void);
+static void        configRFM(void);
+static void        configRFPower(void);
 static void        configSaveToNVM(void);
-static bool        configSCD(void);
-static bool        configUART(void);
+static void        configCO2(void);
+static void        configUART(void);
 static const char *getLastReset(void);
 static void        inBufferClear(void);
+static CmdArgs_t   inBufferTok(void);
 static void        printInvalidVal(void);
+static void        printSettingCO2(void);
 static void        printSettingJSON(void);
 static void        printSettingPeriod(void);
 static void        printSettingPulse(void);
@@ -57,37 +66,56 @@ static void        printSettingsHR(void);
 static void        printSettingsKV(void);
 static void        putUint(const uint32_t u);
 static void        putUniqueID(void);
-static void        sepNullBuffer(void);
+static bool        requireExactArgs(const size_t n);
 static void        uartPutsError(const char *msg);
 
 /*************************************
  * Local variables
  *************************************/
 
-#define IN_BUFFER_W (16u)
+#define IN_BUFFER_W (64u)
 
 static char            inBuffer[IN_BUFFER_W];
 static volatile char   inBufferVolatile[IN_BUFFER_W];
 static volatile size_t inBufferIdx = 0;
 static volatile bool   cmdPending  = false;
 
-static EmonTHConfigPacked_t config        = {0};
-static bool                 unsavedChange = false;
+static EmonTHConfigPacked_t config    = {0};
+static EmonTHConfigPacked_t configNVM = {0};
 
-static bool configDatalog(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static CmdArgs_t cmdArgs       = {0};
+static bool      unsavedChange = false;
+
+static bool configCheckUnsaved(void) {
+  return (0 != memcmp(&config, &configNVM, sizeof(config)));
+}
+
+static void configDatalog(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u16 < 5u) {
     uartPutsError("sample period must be greater than 4 s\r\n");
-    return false;
+    return;
+  }
+  if (convU.val.u32 > RTC_PERIOD_MAX_SECONDS) {
+    uartPutsError("sample period exceeds RTC maximum");
+    return;
+  }
+  if (convU.val.u32 > config.scdCfg.sampleInterval) {
+    uartPutsError("sample period must not exceed CO2 sample interval");
+    return;
   }
 
   config.baseCfg.reportTime = convU.val.u16;
   printSettingPeriod();
-  return true;
 }
 
 /*! @brief Set all configuration values to defaults */
@@ -112,105 +140,126 @@ static void configDefault(void) {
   config.scdCfg.sampleInterval = 600u; // 10 minute CO2 sampling
 }
 
-static bool configExtTempMax(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static void configExtTempMax(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   /* Must be 0, 1 or 4 */
   if ((0 != convU.val.u8) && (1u != convU.val.u8) && (4u != convU.val.u8)) {
     uartPutsError("must be in [0,1,4]\r\n");
-    return false;
+    return;
   }
 
   config.baseCfg.extTempEn = convU.val.u8;
-  return true;
 }
 
-static bool configJSON(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static void configJSON(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
+  }
+  if (convU.val.u8 > 1u) {
+    printInvalidVal();
+    return;
   }
 
   config.baseCfg.useJson = (bool)convU.val.u8;
   printSettingJSON();
-  return true;
 }
 
-static bool configOneWire(void) {
-
-  sepNullBuffer();
-
-  ConvInt_t convI = utilAtoi(inBuffer + 1, ITOA_BASE10);
-
-  if (!convI.valid) {
-    return false;
+static void configNodeID(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
   }
 
-  return false;
-}
-
-static bool configNodeID(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if ((convU.val.u8 < 1u) || (convU.val.u8 > 60u)) {
     uartPutsError("ID must be [1..60]\r\n");
-    return false;
+    return;
   }
 
   config.baseCfg.nodeID = convU.val.u8;
 
   printSettingRF();
-  return true;
 }
 
-static bool configPulse(void) {
-  /* String format in inBuffer:
-   *      [1] -> active
-   *      [3] -> pull configuration
-   *      [5] -> NULL: blank time
-   */
+static void configPulse(void) {
   ConvUint_t convU;
   bool       active   = 0;
   uint8_t    pu       = 0;
   uint8_t    timeMask = 0;
 
-  convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+  if ((cmdArgs.argv[0][1] != '\0') ||
+      ((2u != cmdArgs.argc) && (4u != cmdArgs.argc))) {
+    uartPutsError("expected active, pull, and period");
+    return;
+  }
+
+  convU = utilAtoui(cmdArgs.argv[1], ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
+  }
+  if (convU.val.u8 > 1u) {
+    printInvalidVal();
+    return;
   }
   active = (bool)convU.val.u8;
 
   if (!active) {
     config.pulseCfg.active = false;
     printSettingPulse();
-    return true;
+    return;
   }
 
-  switch (inBuffer[3]) {
-  case 'd':
-    pu = 1u;
-    break;
-  case 'u':
-    pu = 2u;
-    break;
-  case 'n':
-  default:
-    pu = 0;
+  if (4u != cmdArgs.argc) {
+    uartPutsError("expected pull and period");
+    return;
   }
 
-  convU = utilAtoui(inBuffer + 5, ITOA_BASE10);
+  const char pull = cmdArgs.argv[2][0];
+
+  bool validPull = ('d' == pull) || ('u' == pull) || ('n' == pull);
+
+  if (validPull) {
+    switch (pull) {
+    case 'd':
+      pu = 1u;
+      break;
+    case 'u':
+      pu = 2u;
+      break;
+    case 'n':
+      pu = 0;
+    }
+  } else {
+    uartPutsError("invalid pull configuration (u, d, n).");
+    return;
+  }
+
+  convU = utilAtoui(cmdArgs.argv[3], ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   timeMask = convU.val.u8;
 
@@ -219,38 +268,62 @@ static bool configPulse(void) {
   config.pulseCfg.timeMask = timeMask;
 
   printSettingPulse();
-  return true;
 }
 
-static bool configRF433(void) {
-  int val = inBuffer[1] - '0';
+static void configRestore(void) {
+  if (requireExactArgs(1u)) {
+    if ('\0' == cmdArgs.argv[0][1]) {
+      configDefault();
+      uartPuts("> Restored default values.\r\n");
+    } else if ('s' == cmdArgs.argv[0][1]) {
+      memcpy(&config, &configNVM, sizeof(config));
+      uartPuts("> Restored saved values.\r\n");
+    } else {
+      uartPutsError("invalid option.");
+    }
+  } else {
+    uartPutsError("unexpected arguments.");
+  }
+}
 
-  if (!((0 == val) || (1 == val))) {
+static void configRF433(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
+
+  if (!convU.valid || (convU.val.u8 > 1u)) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   /* Only applies to 433 MHz ISM band */
   if (!((config.dataTxCfg.rfmFreq == 2u) || (config.dataTxCfg.rfmFreq == 3u))) {
     uartPutsError("only for 433 MHz ISM\r\n");
-    return false;
+    return;
   }
 
-  config.dataTxCfg.rfmFreq = (0 == val) ? 3u : 2u;
+  config.dataTxCfg.rfmFreq = (0 == convU.val.u8) ? 3u : 2u;
 
   printSettingRF();
-  return true;
 }
 
-static bool configRFM(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static void configRFM(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
   if (convU.val.u8) {
     config.dataTxCfg.txType |= (1u << 0);
@@ -259,64 +332,83 @@ static bool configRFM(void) {
   }
 
   printSettingRF();
-  return true;
 }
 
-static bool configRFPower(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static void configRFPower(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
   if ((convU.val.u8 == 0) || (convU.val.u8 > 31)) {
     uartPutsError("power must be in range [1..31]\r\n");
-    return false;
+    return;
   }
 
   config.dataTxCfg.rfmPwr = convU.val.u8;
 
   printSettingRF();
-  return true;
 }
 
-static bool configSCD(void) {
+static void configCO2(void) {
 
-  sepNullBuffer();
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
-  if (!convU.valid) {
-    uartPutsError("invalid sample interval.");
-    return false;
+  if (2u > cmdArgs.argc) {
+    uartPutsError("expected at least altitude");
+    return;
+  } else if (3u < cmdArgs.argc) {
+    uartPutsError("unexpected argument");
+    return;
   }
 
-  config.scdCfg.sampleInterval = convU.val.u16;
-
-  size_t i;
-  for (i = 0; i < IN_BUFFER_W; i++) {
-    if (0 == inBuffer[i]) {
-      break;
-    }
-  }
-
-  convU = utilAtoui(inBuffer + i, ITOA_BASE10);
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[1], ITOA_BASE10);
   if (!convU.valid) {
     uartPutsError("invalid altitude.");
-    return false;
+    return;
+  } else {
+    config.scdCfg.altitude = convU.val.u16;
   }
-  config.scdCfg.altitude = convU.val.u16;
 
-  return true;
+  if (3u == cmdArgs.argc) {
+
+    convU = utilAtoui(cmdArgs.argv[2], ITOA_BASE10);
+    if (!convU.valid) {
+      uartPutsError("invalid sample time.");
+      return;
+    }
+    if (convU.val.u32 < config.baseCfg.reportTime) {
+      uartPutsError("sample interval must be at least the report period");
+      return;
+    }
+    if (convU.val.u32 > 0xFFFFu) {
+      uartPutsError("sample interval exceeds storage maximum");
+      return;
+    }
+    config.scdCfg.sampleInterval = convU.val.u16;
+  }
+
+  printSettingCO2();
 }
 
-static bool configUART(void) {
-  ConvUint_t convU = utilAtoui(inBuffer + 1, ITOA_BASE10);
+static void configUART(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
   if (!convU.valid) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   if (convU.val.u8 > 1u) {
     printInvalidVal();
-    return false;
+    return;
   }
 
   if (convU.val.u8) {
@@ -326,7 +418,6 @@ static bool configUART(void) {
   }
 
   printSettingUART();
-  return true;
 }
 
 /*! @brief Get the last reset cause (21.8.1)
@@ -370,6 +461,7 @@ uint32_t getUniqueID(const size_t idx) {
 
 static void inBufferClear(void) {
   inBufferIdx = 0;
+  cmdArgs     = (CmdArgs_t){0};
 
   for (size_t i = 0; i < IN_BUFFER_W; i++) {
     inBufferVolatile[i] = 0;
@@ -377,7 +469,40 @@ static void inBufferClear(void) {
   }
 }
 
+static CmdArgs_t inBufferTok(void) {
+  CmdArgs_t result = {0};
+  bool      inTok  = false;
+
+  for (size_t i = 0; i < IN_BUFFER_W; i++) {
+    if ('\0' == inBuffer[i]) {
+      break;
+    }
+    if (' ' == inBuffer[i]) {
+      inBuffer[i] = '\0';
+      inTok       = false;
+      continue;
+    }
+
+    if (!inTok) {
+      if (result.argc < (sizeof(result.argv) / sizeof(result.argv[0]))) {
+        result.argv[result.argc++] = &inBuffer[i];
+      }
+      inTok = true;
+    }
+  }
+
+  return result;
+}
+
 static void printInvalidVal(void) { uartPutsError("invalid value\r\n"); }
+
+static void printSettingCO2(void) {
+  uartPuts("co2_altitude = ");
+  putUint(config.scdCfg.altitude);
+  uartPuts(", scd4x_period = ");
+  putUint(config.scdCfg.sampleInterval);
+  uartPuts("\r\n");
+}
 
 static void printSettingJSON(void) {
   uartPuts("json = ");
@@ -442,7 +567,18 @@ static void printSettingUART(void) {
 }
 
 static void printSettings(void) {
-  if ('h' == inBuffer[1]) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  if ((cmdArgs.argv[0][1] != '\0') &&
+      !((cmdArgs.argv[0][1] == 'h') && (cmdArgs.argv[0][2] == '\0'))) {
+    uartPutsError("unknown command");
+    return;
+  }
+
+  if ('h' == cmdArgs.argv[0][1]) {
     printSettingsHR();
   } else {
     printSettingsKV();
@@ -510,10 +646,11 @@ static void printSettingsKV(void) {
   printSettingPulse();
   printSettingUART();
   printSettingJSON();
+  printSettingCO2();
 }
 
 static void putUint(const uint32_t u) {
-  char strBuffer[8];
+  char strBuffer[12];
   (void)utilUtoa(strBuffer, u, ITOA_BASE10);
   uartPuts(strBuffer);
 }
@@ -526,14 +663,13 @@ static void putUniqueID(void) {
   }
 }
 
-static void sepNullBuffer(void) {
-  for (size_t i = 0; i < IN_BUFFER_W; i++) {
-    if (0 == inBuffer[i]) {
-      break;
-    } else if (' ' == inBuffer[i]) {
-      inBuffer[i] = 0;
-    }
+static bool requireExactArgs(const size_t n) {
+  if (n != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return false;
   }
+
+  return true;
 }
 
 static void uartPutsError(const char *msg) {
@@ -623,6 +759,7 @@ EmonTHConfigPacked_t *configLoadFromNVM(void) {
   }
 
   memcpy(&config, pCfg, sizeof(*pCfg));
+  memcpy(&configNVM, pCfg, sizeof(*pCfg));
   return &config;
 }
 
@@ -630,16 +767,15 @@ static bool configProcessCmd(void) {
   bool         exitConfig = false;
   unsigned int arglen     = 0;
   bool         termFound  = false;
-  bool         cmdUnsaved = false;
 
   /* Help text - serves as documentation interally as well */
   static const char helpText[] =
       "\r\n"
       "emonTH information and configuration commands\r\n\r\n"
       " - ?             : show this text again\r\n"
-      " - a<n> <m>      : Configure SCD4x and STCC-4 CO2 sensors\r\n"
-      "     -  n : sample interval (s)\r\n"
-      "     -  m : altitude above sea level (m)\r\n"
+      " - a <a> <t>     : Configure SCD4x and STCC-4 CO2 sensors\r\n"
+      "     -  a : altitude above sea level (m) (s)\r\n"
+      "     -  t : sample interval (s); SCD4x only.\r\n"
       " - c<n>          : enable UART. n = 0: OFF, n = 1: ON\r\n"
       " - d<n>          : set the data acquisition period\r\n"
       " - e<n>          : number of external temperature sensors (0, 1, or "
@@ -655,12 +791,8 @@ static bool configProcessCmd(void) {
       "     - z : minimum period (ms). Only for x = 1\r\n"
       " - n<n>          : set node ID [1..60].\r\n"
       " - p<n>          : set the RF power level\r\n"
-      " - r             : restore defaults\r\n"
+      " - r[s]          : restore defaults, rs to restore saved config\r\n"
       " - s             : save settings to NVM\r\n"
-      " - t<x> <yy> <yy> <yy> <yy> <yy> <yy> <yy> <yy>\r\n"
-      "   : change an external sensor's position\r\n"
-      "     - x: position of sensor in the list (1-based)\r\n"
-      "     - yy : hexadecimal bytes, e.g. 28 81 43 31 07 00 00 D9\r\n"
       " - v             : firmware and board information\r\n"
       " - w<n>          : enable wireless. n = 0: OFF, n = 1: ON\r\n"
       " - x<n>          : 433 MHz compatibility. n = 0: 433.92 MHz, n = 1: "
@@ -684,95 +816,95 @@ static bool configProcessCmd(void) {
     return false;
   }
 
+  cmdArgs = inBufferTok();
+
+  if (0 == cmdArgs.argc) {
+    inBufferClear();
+    return false;
+  }
+
   /* Decode on first character in the buffer */
-  switch (inBuffer[0]) {
+  switch (cmdArgs.argv[0][0]) {
   case '?':
-    /* Print help text */
-    uartPuts(helpText);
+    if (requireExactArgs(1u)) {
+      uartPuts(helpText);
+    }
     break;
   case 'a':
-    if (configSCD()) {
-      cmdUnsaved = true;
-    }
+    configCO2();
     break;
   case 'c':
-    if (configUART()) {
-      cmdUnsaved = true;
-    }
+    configUART();
     break;
   case 'd':
-    if (configDatalog()) {
-      cmdUnsaved = true;
-    }
+    configDatalog();
     break;
   case 'e':
-    if (configExtTempMax()) {
-      cmdUnsaved = true;
-    }
+    configExtTempMax();
     break;
   case 'f':
-    exitConfig = true;
+    if (requireExactArgs(1u)) {
+      exitConfig = true;
+    }
     break;
   case 'j':
-    if (configJSON()) {
-      cmdUnsaved = true;
-    }
+    configJSON();
     break;
   case 'l':
     printSettings();
     break;
   case 'm':
-    if (configPulse()) {
-      cmdUnsaved = true;
-    }
+    configPulse();
     break;
   case 'n':
-    if (configNodeID()) {
-      cmdUnsaved = true;
-    }
+    configNodeID();
     break;
   case 'p':
-    if (configRFPower()) {
-      cmdUnsaved = true;
-    }
+    configRFPower();
     break;
   case 'r':
-    configDefault();
-    uartPuts("> Restored default values.\r\n");
-    cmdUnsaved = true;
+    configRestore();
     break;
   case 's':
-    configSaveToNVM();
-    unsavedChange = false;
-    break;
-  case 't':
-    cmdUnsaved = configOneWire();
+    if (requireExactArgs(1u)) {
+      configSaveToNVM();
+    }
     break;
   case 'v':
-    configFirmwareBoardInfo();
+    if (requireExactArgs(1u)) {
+      configFirmwareBoardInfo();
+    }
     break;
   case 'w':
-    cmdUnsaved = configRFM();
+    configRFM();
     break;
   case 'x':
-    cmdUnsaved = configRF433();
+    configRF433();
+    break;
+  default:
+    uartPutsError("unknown command");
     break;
   }
 
-  if (!unsavedChange) {
-    unsavedChange = cmdUnsaved;
-  }
+  unsavedChange = configCheckUnsaved();
+
   cmdPending = false;
   inBufferClear();
   return exitConfig;
 }
 
 void configSaveToNVM(void) {
-  nvmPageBufferClear();
-  memcpy(nvmPageBuffer(), &config, sizeof(config));
-  nvmDataFlashWrite(NVM_PAGE_CONFIG, sizeof(config));
+  if (unsavedChange) {
+    nvmPageBufferClear();
+    memcpy(nvmPageBuffer(), &config, sizeof(config));
+    nvmDataFlashWrite(NVM_PAGE_CONFIG, sizeof(config));
 
-  uartPuts("> All settings saved.\r\n");
+    unsavedChange = false;
+    memcpy(&configNVM, &config, sizeof(config));
+    uartPuts("> All settings saved.\r\n");
+  } else {
+    uartPuts("> No changes to save.\r\n");
+  }
 }
 
 /* =======================

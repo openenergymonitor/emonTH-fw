@@ -4,6 +4,7 @@
 #include "dataPack.h"
 #include "emonTH_assert.h"
 #include "periph_HDC2010.h"
+#include "temperature.h"
 #include "util.h"
 
 #define CONV_STR_W (16u)
@@ -34,6 +35,7 @@ typedef struct StrN {
 static void   catId(StrN_t *strD, int id, const size_t field, const bool json);
 static void   initFields(StrN_t *pD, char *pS, const size_t m);
 static size_t strnCat(StrN_t *strD, const StrN_t *strS);
+static size_t strnCatDeci(StrN_t *strD, const int32_t v);
 static size_t strnCatInt(StrN_t *strD, const int32_t v);
 static size_t strnCatUint(StrN_t *strD, const uint32_t v);
 
@@ -85,11 +87,18 @@ static void initFields(StrN_t *pD, char *pS, const size_t m) {
 }
 
 static size_t strnCatFromTmp(StrN_t *strD, const size_t len) {
-  const size_t space  = strD->m - strD->n;
-  const size_t toCopy = (len < space) ? len : space;
+  size_t toCopy = 0;
 
-  memcpy(strD->str + strD->n, tmpStr, toCopy);
-  return toCopy;
+  if (strD->n < strD->m) {
+    const size_t space = strD->m - strD->n;
+    toCopy             = (len < space) ? len : space;
+  }
+
+  if (toCopy) {
+    memcpy(strD->str + strD->n, tmpStr, toCopy);
+  }
+
+  return len;
 }
 
 static size_t strnCatInt(StrN_t *strD, const int32_t v) {
@@ -101,20 +110,42 @@ static size_t strnCatUint(StrN_t *strD, const uint32_t v) {
 }
 
 static size_t strnCat(StrN_t *strD, const StrN_t *strS) {
-  /* Check bounds to make sure it won't go over the end. If so, return the
-   * actual number of bytes that are copied.
-   */
-  size_t newLen;
-  size_t bytesToCopy;
+  size_t bytesToCopy = 0;
 
-  bytesToCopy = strS->n;
-  newLen      = strS->n + strD->n;
-  if (newLen >= strD->m) {
-    bytesToCopy = strD->m - strD->n;
+  if (strD->n < strD->m) {
+    const size_t space = strD->m - strD->n;
+    bytesToCopy        = (strS->n < space) ? strS->n : space;
   }
 
-  memcpy((strD->str + strD->n), strS->str, bytesToCopy);
-  return bytesToCopy;
+  if (bytesToCopy) {
+    memcpy((strD->str + strD->n), strS->str, bytesToCopy);
+  }
+
+  return strS->n;
+}
+
+static size_t strnCatDeci(StrN_t *strD, const int32_t v) {
+  uint32_t mag = (uint32_t)v;
+  size_t   n   = 0;
+  size_t   appended;
+  StrN_t   str = *strD;
+
+  if (v < 0) {
+    mag      = (uint32_t)(-(v + 1)) + 1u;
+    appended = strnCat(&str, &(StrN_t){.str = "-", .n = 1, .m = 2});
+    n += appended;
+    str.n += appended;
+  }
+
+  appended = strnCatUint(&str, mag / 10u);
+  n += appended;
+  str.n += appended;
+  appended = strnCat(&str, &baseStr[STR_PERIOD]);
+  n += appended;
+  str.n += appended;
+  appended = strnCatUint(&str, mag % 10u);
+  n += appended;
+  return n;
 }
 
 void dataPackPacked(const EmonTHDataset_t *restrict pData,
@@ -165,20 +196,16 @@ size_t dataPackSerial(const EmonTHDataset_t *restrict pData,
   }
 
   catId(&strn, -1, STR_TEMP, json);
-  strn.n += strnCatInt(&strn, tempInt / 10);
-  strn.n += strnCat(&strn, &baseStr[STR_PERIOD]);
-  strn.n += strnCatInt(&strn, tempInt % 10);
+  strn.n += strnCatDeci(&strn, tempInt);
 
   for (int i = 0; i < (int)pData->numExtMax; i++) {
     /* Only include sensors that have been found */
-    if (pData->tempExternal[i] != 4800) {
+    if (pData->tempExternal[i] != TEMP_ONEWIRE_RAW_UNUSED) {
       tempInt = pData->tempExternal[i] * 62500; /* micro-degrees */
       tempInt = tempInt / 100000;               /* deci-degrees */
       catId(&strn, (i + 1), STR_TEMPEX, json);
 
-      strn.n += strnCatInt(&strn, tempInt / 10);
-      strn.n += strnCat(&strn, &baseStr[STR_PERIOD]);
-      strn.n += strnCatInt(&strn, tempInt % 10);
+      strn.n += strnCatDeci(&strn, tempInt);
     }
   }
 

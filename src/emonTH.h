@@ -94,6 +94,12 @@ void emonTHEventClr(const EVTSRC_t evt);
  */
 void emonTHEventSet(const EVTSRC_t evt);
 
+/*! @brief Atomically test and clear a pending event flag.
+ *  @param [in] evt : event source in enum
+ *  @return true if pending, false otherwise
+ */
+bool emonTHEventTake(const EVTSRC_t evt);
+
 /*! @brief Set the flag that any character has been received on UART */
 void emonTHInteractiveUartSet(void);
 

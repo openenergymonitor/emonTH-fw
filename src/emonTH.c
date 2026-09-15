@@ -47,7 +47,6 @@ AssertInfo_t             g_assert_info;
 
 static void    boardSetup(EmonTHConfigPacked_t *pCfg, size_t *tempNum);
 static void    errorFatal(void);
-static bool    evtPending(const EVTSRC_t evt);
 static void    gpioClr(const size_t gpio);
 static void    gpioSet(const size_t gpio);
 static void    ledPulseOvfIncr(void);
@@ -75,17 +74,31 @@ void uartPuts(const char *s) {
 void emonTHEventClr(const EVTSRC_t evt) {
   /* Disable interrupts during RMW update of event status */
   uint32_t evtDecode = ~(1u << evt);
+  uint32_t primask   = __get_PRIMASK();
   __disable_irq();
   evtPend &= evtDecode;
-  __enable_irq();
+  __set_PRIMASK(primask);
 }
 
 void emonTHEventSet(const EVTSRC_t evt) {
   /* Disable interrupts during RMW update of event status */
   uint32_t evtDecode = (1u << evt);
+  uint32_t primask   = __get_PRIMASK();
   __disable_irq();
   evtPend |= evtDecode;
-  __enable_irq();
+  __set_PRIMASK(primask);
+}
+
+bool emonTHEventTake(const EVTSRC_t evt) {
+  uint32_t evtDecode = (1u << evt);
+  uint32_t primask   = __get_PRIMASK();
+
+  __disable_irq();
+  bool ret = (evtPend & evtDecode) ? true : false;
+  evtPend &= ~evtDecode;
+  __set_PRIMASK(primask);
+
+  return ret;
 }
 
 static void boardSetup(EmonTHConfigPacked_t *pCfg, size_t *tempNum) {
@@ -157,15 +170,6 @@ static void errorFatal(void) {
   }
 }
 
-/*! @brief Check if an event source is active.
- *  @param [in] evt : event source to check
- *  @return true if pending, false otherwise
- */
-static bool evtPending(const EVTSRC_t evt) {
-  bool ret = (evtPend & (1u << evt)) ? true : false;
-  return ret;
-}
-
 __attribute__((__unused__)) static void gpioClr(const size_t gpio) {
   const size_t pin = (0 == gpio) ? PIN_GPIO0 : PIN_GPIO1;
   portPinDrv(pin, PIN_DRV_CLR);
@@ -224,20 +228,20 @@ static void measureExternal(EmonTHDataset_t *pData, const size_t numExt) {
   }
   pData->pulseCnt = pulseGetCount();
 
-  /* Only a single external will be reported, use 300°C for OEM */
+  /* Only a single external will be reported, use OEM unused sentinel. */
   if (!numExt) {
-    pData->tempExternal[0] = 4800;
+    pData->tempExternal[0] = TEMP_ONEWIRE_RAW_UNUSED;
     return;
   }
 
-  /* Default slots to failure (304°C) */
+  /* Default slots to failure. */
   for (size_t i = 0; i < numExt; i++) {
-    pData->tempExternal[i] = 4864;
+    pData->tempExternal[i] = TEMP_ONEWIRE_RAW_FAILED;
   }
 
-  /* Mark unused slots as 300°C */
+  /* Mark unused slots. */
   for (size_t i = numExt; i < TEMP_MAX_ONEWIRE; i++) {
-    pData->tempExternal[i] = 4800;
+    pData->tempExternal[i] = TEMP_ONEWIRE_RAW_UNUSED;
   }
 
   /* DS18B20 conversion takes 750 ms @ 12 bit resolution */
@@ -308,8 +312,9 @@ static void transmitData(const EmonTHDataset_t *pSrc, const TransmitOpt_t *pOpt,
 
   if (pOpt->logSerial) {
     samlSleepIdle(); /* Require IDLE for DMA rather than standby */
-    uint32_t n = dataPackSerial(pSrc, txBuffer, TX_BUFFER_W, pOpt->json);
-    uartPutsNonBlocking(txBuffer, n);
+    size_t   n   = dataPackSerial(pSrc, txBuffer, TX_BUFFER_W, pOpt->json);
+    uint32_t len = (n > TX_BUFFER_W) ? TX_BUFFER_W : (uint32_t)n;
+    uartPutsNonBlocking(txBuffer, len);
   }
 
   if (pOpt->useRFM) {
@@ -345,6 +350,9 @@ static void txOptions(const EmonTHConfigPacked_t *pCfg, TransmitOpt_t *pOpt) {
     pOpt->logSerial = true;
     uartDisableRx();
     break;
+  default:
+    pOpt->useRFM = true;
+    uartDisable();
   }
 }
 
@@ -404,9 +412,7 @@ int main(void) {
 
   while (1) {
 
-    if (evtPending(EVT_WAKE_TIMER)) {
-      emonTHEventClr(EVT_WAKE_TIMER);
-
+    if (emonTHEventTake(EVT_WAKE_TIMER)) {
       regEnable(true);
 
       measureInternal(&dataset);
@@ -424,19 +430,16 @@ int main(void) {
       }
     }
 
-    if (evtPending(EVT_SCD4x_SAMPLE)) {
-      emonTHEventClr(EVT_SCD4x_SAMPLE);
-
+    if (emonTHEventTake(EVT_SCD4x_SAMPLE)) {
       regEnable(true);
 
       dataset.co2 = scd4xMeasureCO2();
     }
 
-    if (evtPending(EVT_LED_FLASH)) {
+    if (emonTHEventTake(EVT_LED_FLASH)) {
       portPinDrv(PIN_LED, PIN_DRV_SET);
       timerDelaySleep_ms(500u);
       portPinDrv(PIN_LED, PIN_DRV_CLR);
-      emonTHEventClr(EVT_LED_FLASH);
     }
 
     regDisable();

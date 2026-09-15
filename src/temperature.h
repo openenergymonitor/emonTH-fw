@@ -17,6 +17,13 @@ typedef enum TempStatus_ {
   TEMP_OUT_OF_RANGE
 } TempStatus_t;
 
+/* OneWire sample values are fixed-point in 1/16 deg C. These values are
+ * outside the DS18B20 valid range and match the OEM sentinel encoding.
+ */
+#define TEMP_ONEWIRE_RAW_UNUSED       4800 /* 300 deg C */
+#define TEMP_ONEWIRE_RAW_OUT_OF_RANGE 4832 /* 302 deg C */
+#define TEMP_ONEWIRE_RAW_FAILED       4864 /* 304 deg C */
+
 typedef struct TempRead_ {
   TempStatus_t status;
   int16_t      result;

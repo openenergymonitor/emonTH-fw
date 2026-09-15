@@ -16,8 +16,8 @@ void dataPackPacked(const EmonTHDataset_t *restrict pData,
 
 /*! @brief Packs the data packet into serial format.
  *         Returns the number of characters that would have been packed,
- *         regardless of the value of m. If the return value != m, then the
- *         buffer would have overflowed (similar to snprintf). Does not append
+ *         regardless of the value of m. If the return value > m, then the
+ *         buffer was truncated (similar to snprintf). Does not append
  *         a NULL. Clears data buffer in advance.
  *  @param [in] pData : pointer to the raw data
  *  @param [out] pDst : pointer to the destination buffer

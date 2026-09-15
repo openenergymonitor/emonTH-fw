@@ -77,11 +77,11 @@ SC_COMMAND(cmdSTCCId, STCC_CMD_STCC_ID, R, 12u, 1u, ADDR7_STCC)
 static SC_Resp_t cmdExecute(const SC_Cmd_t *cmd, uint8_t *pData);
 static uint8_t   crcCalc(const uint8_t *pData, const size_t n);
 static void      printInfo(const SC_Type_t type);
+static uint16_t  readU16BE(const uint8_t *pData);
 static void      regRead(const SC_Cmd_t *cmd, uint8_t *pData);
 static void      regWrite(const SC_Cmd_t *cmd, const uint8_t *pData);
 
 /* ==== SCD4x functions ==== */
-static void     byteSwap(uint8_t *pBuf);
 static void     initSCD(const uint16_t altitude);
 static uint16_t measureSCD40(void);
 static void     powerOff(void);
@@ -99,12 +99,6 @@ static bool     stccPresent;
 
 static int16_t  tInt = 0; /* Temperature from board sensor */
 static uint16_t hInt = 0; /* RH from board sensor */
-
-static void byteSwap(uint8_t *pBuf) {
-  uint8_t tmp0 = pBuf[0];
-  pBuf[0]      = pBuf[1];
-  pBuf[1]      = tmp0;
-}
 
 static uint16_t convAltitude2Pressure(const uint16_t altitude) {
   /* Approximation to ~1.5% under 5 km: 101325 - 12(altitude) */
@@ -169,6 +163,10 @@ static uint8_t crcCalc(const uint8_t *pData, const size_t n) {
   return crc;
 }
 
+static uint16_t readU16BE(const uint8_t *pData) {
+  return ((uint16_t)pData[0] << 8) | pData[1];
+}
+
 static void powerOff(void) { portPinDrv(PIN_EXT_EN, PIN_DRV_CLR); }
 
 static void powerOn(void) {
@@ -182,9 +180,10 @@ static void initSCD(uint16_t altitude) {
 
   /* Check altitude has been set as configured */
   cmdExecute(&cmdAltitudeGet, dBuf);
-  if (altitude != *(uint16_t *)dBuf) {
-    *(uint16_t *)dBuf = altitude;
-    byteSwap(dBuf);
+  uint16_t currentAltitude = ((uint16_t)dBuf[0] << 8) | dBuf[1];
+  if (altitude != currentAltitude) {
+    dBuf[0] = altitude & 0xFFu;
+    dBuf[1] = altitude >> 8;
     cmdExecute(&cmdAltitudeSet, dBuf);
     cmdExecute(&cmdPersistCfg, NULL);
   }
@@ -203,7 +202,7 @@ static uint16_t measureSCD40(void) {
   } while (0 == (dbuf[1] & 0x7FF));
 
   cmdExecute(&cmdSampleReadSCD, dbuf);
-  return *(uint16_t *)dbuf;
+  return readU16BE(dbuf);
 }
 
 static void printInfo(const SC_Type_t type) {
@@ -251,9 +250,11 @@ static void regRead(const SC_Cmd_t *cmd, uint8_t *pData) {
 static void regWrite(const SC_Cmd_t *cmd, const uint8_t *pData) {
   /* All commands are 16 bit, MSB first */
   for (size_t i = 0; i < cmd->n; i = i + 2u) {
-    i2cDataWrite(pData[i + 1u]);
-    i2cDataWrite(pData[i]);
-    i2cDataWrite(crcCalc(pData + i, 2));
+    uint8_t word[2] = {pData[i + 1u], pData[i]};
+
+    i2cDataWrite(word[0]);
+    i2cDataWrite(word[1]);
+    i2cDataWrite(crcCalc(word, sizeof(word)));
   }
   i2cAck(I2CM_ACK, I2CM_ACK_CMD_STOP);
 }
@@ -299,8 +300,8 @@ uint16_t scd4xMeasureCO2(void) {
     return measureSCD40();
   }
 
-  uint16_t co2;
-  bool     i2cIsEnabled = i2cEnabled();
+  uint8_t co2[2];
+  bool    i2cIsEnabled = i2cEnabled();
 
   if (!i2cIsEnabled) {
     i2cEnable();
@@ -312,14 +313,14 @@ uint16_t scd4xMeasureCO2(void) {
   cmdExecute(&cmdSampleSingleSCD, NULL);
   cmdExecute(&cmdSampleSingleSCD, NULL);
   /* Revisit : check for data ready? */
-  cmdExecute(&cmdSampleReadSCD, (uint8_t *)&co2);
+  cmdExecute(&cmdSampleReadSCD, co2);
 
   if (!i2cIsEnabled) {
     i2cDisable();
   }
 
   powerOff();
-  return co2;
+  return readU16BE(co2);
 }
 
 bool scd4xPresent(void) { return scdID != SCD4x_NONE; }

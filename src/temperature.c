@@ -71,7 +71,7 @@ TempStatus_t tempSampleRead(const TEMP_INTF_t intf, int16_t *pDst) {
       if (TEMP_OK == dsbResult.status) {
         pDst[i] = dsbResult.temp;
       } else if (TEMP_OUT_OF_RANGE == dsbResult.status) {
-        pDst[i] = 4832; /* 302°C */
+        pDst[i] = TEMP_ONEWIRE_RAW_OUT_OF_RANGE;
       } else {
         presence = false;
       }
@@ -86,7 +86,7 @@ TempStatus_t tempSampleRead(const TEMP_INTF_t intf, int16_t *pDst) {
 
     /* Fill any unused entries in the buffer */
     for (i = numSensors; i < TEMP_MAX_ONEWIRE; i++) {
-      pDst[i] = 4800; /* 300°C */
+      pDst[i] = TEMP_ONEWIRE_RAW_UNUSED;
     }
   }
 
