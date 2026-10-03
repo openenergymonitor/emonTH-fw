@@ -78,7 +78,7 @@ static SC_Resp_t cmdExecute(const SC_Cmd_t *cmd, uint8_t *pData);
 static uint8_t   crcCalc(const uint8_t *pData, const size_t n);
 static void      printInfo(const SC_Type_t type);
 static uint16_t  readU16BE(const uint8_t *pData);
-static void      regRead(const SC_Cmd_t *cmd, uint8_t *pData);
+static SC_Resp_t regRead(const SC_Cmd_t *cmd, uint8_t *pData);
 static void      regWrite(const SC_Cmd_t *cmd, const uint8_t *pData);
 
 /* ==== SCD4x functions ==== */
@@ -127,6 +127,7 @@ static SC_Resp_t cmdExecute(const SC_Cmd_t *cmd, uint8_t *pData) {
   uint8_t regLSB = cmd->cmd & 0xFF;
 
   if (I2CM_SUCCESS != i2cActivate(addr8)) {
+    i2cAck(I2CM_ACK, I2CM_ACK_CMD_STOP);
     return SC_RESP_I2C_FAILED;
   }
 
@@ -137,7 +138,7 @@ static SC_Resp_t cmdExecute(const SC_Cmd_t *cmd, uint8_t *pData) {
     regWrite(cmd, pData);
     timerDelaySleep_ms(cmd->t_wait);
   } else if (R == cmd->rwc) {
-    regRead(cmd, pData);
+    return regRead(cmd, pData);
   } else if (C == cmd->rwc) {
     i2cAck(I2CM_NACK, I2CM_ACK_CMD_STOP);
     timerDelaySleep_ms(cmd->t_wait);
@@ -176,7 +177,7 @@ static void powerOn(void) {
 }
 
 static void initSCD(uint16_t altitude) {
-  uint8_t dBuf[2];
+  uint8_t dBuf[3];
 
   /* Check altitude has been set as configured */
   cmdExecute(&cmdAltitudeGet, dBuf);
@@ -194,7 +195,7 @@ static void initSCD(uint16_t altitude) {
 }
 
 static uint16_t measureSCD40(void) {
-  uint8_t dbuf[2];
+  uint8_t dbuf[3];
 
   /* the 11 LSBs of of data ready are 0 when not ready */
   do {
@@ -227,24 +228,40 @@ static void printInfo(const SC_Type_t type) {
   uartPuts("\r\n");
 }
 
-static void regRead(const SC_Cmd_t *cmd, uint8_t *pData) {
-  uint8_t addr8 = (cmd->addr7 << 1) | 0x1u;
+static SC_Resp_t regRead(const SC_Cmd_t *cmd, uint8_t *pData) {
+  const uint8_t addr8 = (cmd->addr7 << 1) | 0x1u;
 
+  /* Factor CRC into read sequence. */
+  size_t totalBytes = cmd->n + (cmd->n / 2u);
+
+  i2cAck(I2CM_ACK, I2CM_ACK_CMD_STOP);
   timerDelaySleep_ms(cmd->t_wait);
+
   if (I2CM_SUCCESS == i2cActivate(addr8)) {
-    for (size_t i = 0; i < cmd->n; i = i + 2) {
+    for (size_t i = 0; i < totalBytes; i = i + 3u) {
       pData[i] = i2cDataRead();
       i2cAck(I2CM_ACK, I2CM_ACK_CMD_CONTINUE);
       pData[i + 1u] = i2cDataRead();
       i2cAck(I2CM_ACK, I2CM_ACK_CMD_CONTINUE);
-      /* Revisit : discarding CRC for now. */
-      (void)i2cDataRead();
-      if ((cmd->n - 2u) != i) {
+      pData[i + 2u] = i2cDataRead();
+      if ((totalBytes - 3u) != i) {
         i2cAck(I2CM_ACK, I2CM_ACK_CMD_CONTINUE);
       }
     }
     i2cAck(I2CM_NACK, I2CM_ACK_CMD_STOP);
+  } else {
+    i2cAck(I2CM_NACK, I2CM_ACK_CMD_STOP);
+    return SC_RESP_I2C_FAILED;
   }
+
+  /* Check each half-word for CRC. */
+  for (size_t i = 0; i < (cmd->n / 2u); i++) {
+    if (pData[(i * 3u) + 2u] != crcCalc(&pData[i * 3u], 2u)) {
+      return SC_RESP_BADCRC;
+    }
+  }
+
+  return SC_RESP_OK;
 }
 
 static void regWrite(const SC_Cmd_t *cmd, const uint8_t *pData) {
@@ -260,7 +277,7 @@ static void regWrite(const SC_Cmd_t *cmd, const uint8_t *pData) {
 }
 
 void scd4xDiscover(const uint16_t altitude) {
-  uint8_t rxBuf[2];
+  uint8_t rxBuf[3];
   scdID = SCD4x_NONE;
 
   powerOn();
@@ -300,7 +317,7 @@ uint16_t scd4xMeasureCO2(void) {
     return measureSCD40();
   }
 
-  uint8_t co2[2];
+  uint8_t co2[3];
   bool    i2cIsEnabled = i2cEnabled();
 
   if (!i2cIsEnabled) {
@@ -326,14 +343,14 @@ uint16_t scd4xMeasureCO2(void) {
 bool scd4xPresent(void) { return scdID != SCD4x_NONE; }
 
 void stcc4Discover(const uint16_t altitude) {
-  uint8_t rxBuf[12] = {0};
+  uint8_t rxBuf[18] = {0};
   stccPresent       = false;
 
   /* Section 3.4.16 : STCC-4 product ID */
   if (SC_RESP_OK == stccSleepExit()) {
     cmdExecute(&cmdSTCCId, rxBuf);
     uint32_t pid = ((uint32_t)rxBuf[0] << 24) | (uint32_t)rxBuf[1] << 16 |
-                   ((uint32_t)rxBuf[2] << 8) | (uint32_t)rxBuf[3];
+                   ((uint32_t)rxBuf[3] << 8) | (uint32_t)rxBuf[4];
 
     if (0x0901018a == pid) {
       stccPresent = true;
@@ -344,7 +361,6 @@ void stcc4Discover(const uint16_t altitude) {
 
   if (stccPresent) {
     uartPuts("\r\n    > Reconditioning... ");
-
     uint16_t pa = convAltitude2Pressure(altitude);
     cmdExecute(&cmdPressureSet, (uint8_t *)&pa);
     /* Assume >3 hr since last sample on boot so recondition (Section 1.1.13) */
@@ -357,9 +373,10 @@ void stcc4Discover(const uint16_t altitude) {
 
 uint16_t stcc4MeasureCO2(void) {
 
-  uint8_t co2[2]       = {0};
-  RHT_t   rht          = {0};
-  bool    i2cIsEnabled = i2cEnabled();
+  uint8_t   co2[3]       = {0};
+  RHT_t     rht          = {0};
+  SC_Resp_t resp         = SC_RESP_OK;
+  bool      i2cIsEnabled = i2cEnabled();
 
   if (!i2cIsEnabled) {
     i2cEnable();
@@ -369,14 +386,20 @@ uint16_t stcc4MeasureCO2(void) {
   rht.t = convT2T(tInt);
 
   if (SC_RESP_OK == stccSleepExit()) {
-    cmdExecute(&cmdSetRHT, (uint8_t *)&rht);
-    cmdExecute(&cmdSampleSingleSTCC, NULL);
-    cmdExecute(&cmdSampleReadSTCC, co2);
-    cmdExecute(&cmdSleepEnter, NULL);
+    (void)cmdExecute(&cmdSetRHT, (uint8_t *)&rht);
+    (void)cmdExecute(&cmdSampleSingleSTCC, NULL);
+    resp = cmdExecute(&cmdSampleReadSTCC, co2);
+    (void)cmdExecute(&cmdSleepEnter, NULL);
   }
 
   if (!i2cIsEnabled) {
     i2cDisable();
+  }
+
+  /* For a bad response, respond with 0 ppm CO2. */
+  if (SC_RESP_OK != resp) {
+    co2[0] = 0;
+    co2[1] = 0;
   }
 
   return (uint16_t)co2[1] | ((uint16_t)co2[0] << 8);
