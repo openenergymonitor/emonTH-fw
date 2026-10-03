@@ -71,6 +71,11 @@ void configFirmwareBoardInfo(void);
  */
 EmonTHConfigPacked_t *configLoadFromNVM(void);
 
+/*! @brief Get STCC-4 reset flag
+ *  @return true for reset, false otherwise
+ */
+bool configSTCC4Reset(void);
+
 /*! @brief Return one word from the SAML's unique ID
  *  @param [in] idx : index of the word to fetch
  *  @return word idx from the unique ID

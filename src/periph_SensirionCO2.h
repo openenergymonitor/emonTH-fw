@@ -17,8 +17,9 @@ bool scd4xPresent(void);
 
 /*! @brief Discover any STCC-4 devices
  *  @param [in] altitude : height above sea level (m)
+ *  @param [in] reset : factory reset
  */
-void stcc4Discover(const uint16_t altitude);
+void stcc4Discover(const uint16_t altitude, const bool reset);
 
 /*! @brief Measure CO2 level
  *  @return Measured CO2 level (ppm). If there is an error, 0 ppm is returned.

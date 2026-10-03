@@ -37,6 +37,7 @@ typedef struct CmdArgs_ {
  *************************************/
 
 static bool        configCheckUnsaved(void);
+static void        configCO2(void);
 static void        configDatalog(void);
 static void        configDefault(void);
 static void        configExtTempMax(void);
@@ -48,7 +49,7 @@ static void        configRF433(void);
 static void        configRFM(void);
 static void        configRFPower(void);
 static void        configSaveToNVM(void);
-static void        configCO2(void);
+static void        configSTCCReset(void);
 static void        configUART(void);
 static const char *getLastReset(void);
 static void        inBufferClear(void);
@@ -85,6 +86,8 @@ static EmonTHConfigPacked_t configNVM = {0};
 
 static CmdArgs_t cmdArgs       = {0};
 static bool      unsavedChange = false;
+
+static bool stcc4Reset = false;
 
 static bool configCheckUnsaved(void) {
   return (0 != memcmp(&config, &configNVM, sizeof(config)));
@@ -501,6 +504,8 @@ static void printSettingCO2(void) {
   putUint(config.scdCfg.altitude);
   uartPuts(", scd4x_period = ");
   putUint(config.scdCfg.sampleInterval);
+  uartPuts(", stcc4_reset: ");
+  uartPuts(stcc4Reset ? "true" : "false");
   uartPuts("\r\n");
 }
 
@@ -637,7 +642,19 @@ static void printSettingsHR(void) {
   } else {
     uartPuts("Disabled");
   }
-  uartPuts("\r\n\r\n");
+  uartPuts("\r\n");
+
+  uartPuts("CO2 sensing       :\r\n");
+  uartPuts("  - Altitude: ");
+  putUint(config.scdCfg.altitude);
+  uartPuts("\r\n  - SCD4x sample interval: ");
+  putUint(config.scdCfg.sampleInterval);
+  uartPuts("\r\n");
+  if (stcc4Reset) {
+    uartPuts("STCC-4 factory reset.\r\n");
+  }
+
+  uartPuts("\r\n");
 }
 
 static void printSettingsKV(void) {
@@ -763,6 +780,8 @@ EmonTHConfigPacked_t *configLoadFromNVM(void) {
   return &config;
 }
 
+bool configSTCC4Reset(void) { return stcc4Reset; }
+
 static bool configProcessCmd(void) {
   bool         exitConfig = false;
   unsigned int arglen     = 0;
@@ -776,6 +795,8 @@ static bool configProcessCmd(void) {
       " - a <a> <t>     : Configure SCD4x and STCC-4 CO2 sensors\r\n"
       "     -  a : altitude above sea level (m) (s)\r\n"
       "     -  t : sample interval (s); SCD4x only.\r\n"
+      " - b<n>          : reset STCC-4 on start. n = 0: no reset, n = 1: "
+      "reset\r\n"
       " - c<n>          : enable UART. n = 0: OFF, n = 1: ON\r\n"
       " - d<n>          : set the data acquisition period\r\n"
       " - e<n>          : number of external temperature sensors (0, 1, or "
@@ -832,6 +853,9 @@ static bool configProcessCmd(void) {
     break;
   case 'a':
     configCO2();
+    break;
+  case 'b':
+    configSTCCReset();
     break;
   case 'c':
     configUART();
@@ -905,6 +929,26 @@ void configSaveToNVM(void) {
   } else {
     uartPuts("> No changes to save.\r\n");
   }
+}
+
+static void configSTCCReset(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
+  if (!convU.valid) {
+    printInvalidVal();
+    return;
+  }
+
+  if (convU.val.u8 > 1u) {
+    printInvalidVal();
+    return;
+  }
+
+  stcc4Reset = (1u == convU.val.u8);
 }
 
 /* =======================

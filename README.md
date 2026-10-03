@@ -55,7 +55,6 @@ A UART is provided for configuration and, optionally, data transmission. It has 
   | OFF      |  ON      |  base-ID+2 |29 |
   | ON (default)      | ON (default)       | base-ID+3 (default)  |30 (default) |
 
-
 ### Run time configuration
 
 When the emonTH3 is first powered on or reset, the **STATUS** LED indicator will slowly pulse for 5 seconds. If any character is received over the UART connection in this time, the emonTH3 will enter configuration mode. It is not possible to configure the emonTH3 outside this period.
@@ -69,6 +68,7 @@ The following options are available through the serial configuration interface.
 |---------|-------------|-----------|
 | `?` | Show help text | None |
 | `a <a> <t>` | Configure CO2 sensors | `a`: altitude above sea level (m)<br>`t`: sample interval (s), optional for SCD4x only |
+| `b<n>` | Reset STCC-4 at startup | `0`: no reset, `1`: reset |
 | `c<n>` | Enable UART output | `0`: off, `1`: on |
 | `d<n>` | Set the data acquisition period | `n`: period value |
 | `e<n>` | Set the number of external temperature sensors | `0`, `1`, or `4` |
@@ -91,6 +91,27 @@ The following options are available through the serial configuration interface.
 - By default UART output is disabled during runtime. It can be enabled using the command `c1` over the serial interface while in the configuration phase
 - The default transmission period is 55s. This can be changed using the command `d<n>` over the serial interface, where `n` is the period in seconds, while in the configuration phase.
 
+## CO<sub>2</sub> Sensing
+
+The emonTH3 supports Sensirion SCD4x and [STCC-4](https://sensirion.com/media/documents/6AED4B15/69295E41/CD_DS_STCC4_D1.pdf) CO<sub>2</sub> sensors as add on boards. The SCD4x has high precision, but is significantly more expensive and uses more energy, limiting battery life to around 6 months (depending on sample period). The STCC-4 is cheaper with lower performance, but is more suitable for battery powered operation.
+
+Both SCD4x and STCC-4 sensors are calibrated with the altitude. The SCD4x sensors can also have the sample period set to balance time resolution against battery life.
+
+The **STCC-4 CO<sub>2</sub> board should be oriented towards the emonTH3's antenna**. The STCC-4 will perform a 20 s conditioning process at startup, unless it is being reset.
+
+### STCC-4 Factory Reset
+
+The STCC-4 sensor performs continuous calibration of the internal sensor. After the initial power up, it may take 6-24 hours for values to be accurately reported.
+
+The STCC-4 sensor must be exposed to a ~400 ppm environment every week, for example by opening a window. If you notice that your CO2 reading is not settling to approximately this value, then the internal calibration should be reset. To do this:
+
+- Open your emonTH3 and connect a UART adapter.
+- Connect to the serial terminal.
+- Reset the emonTH3 by pressing the `RESET` button.
+- When you see the information screen on the terminal, press any key to enter configuration.
+- Use `b1` to enable reset on startup. This can be cleared with `b0`.
+- Use the `f` command to exit configuration and allow the emonTH3 to boot.
+- You will see CO2 readings of `390` until the internal calibration has initialised.
 
 ## EmonHub Decoders
 
@@ -119,14 +140,6 @@ Assuming default node ID of 27.
             scales = 0.1, 0.01, 0.01, 0.01, 0.01, 0.1, 0.01, 1, 1
             units = C, C, C, C, C, %, V, p, ppm
 ```
-
-## CO<sub>2</sub> Sensor
-
-- CO<sub>2</sub> sensor is optional and is not fitted to the board by default.
-- The CO<sub>2</sub> add-on board is connected to the board via the I2C interface, the **CO<sub>2</sub> board should be oriented towards the antenna**.
-- The sensor is a SEK-STCC4 from Sensirion [datasheet](https://sensirion.com/media/documents/6AED4B15/69295E41/CD_DS_STCC4_D1.pdf).
-- The CO<sub>2</sub> sensor requires 20s at startup to "recondition".
-- The CO<sub>2</sub> sensor will be automatically enabled at startup, if fitted.
 
 ## Compiling and uploading
 

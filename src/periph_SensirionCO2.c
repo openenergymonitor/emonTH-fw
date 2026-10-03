@@ -29,6 +29,7 @@ typedef enum SC_Reg_ {
   STCC_CMD_PRESSURE_SET  = 0xe016u,
   STCC_CMD_RECONDITION   = 0x29bcu,
   STCC_CMD_RHT_SET       = 0xe000u,
+  STCC_CMD_FACTORY_RESET = 0x3632u,
   STCC_CMD_SAMPLE_READ   = 0xec05u,
   STCC_CMD_SAMPLE_SINGLE = 0x219du,
   STCC_CMD_SLEEP_ENTER   = 0x3650u,
@@ -65,6 +66,7 @@ SC_COMMAND(cmdSampleSingleSCD, SCD_CMD_SAMPLE_SINGLE, C, 0, 5000u, ADDR7_SCD)
 SC_COMMAND(cmdSCDVariant, SCD_CMD_SCD_VARIANT, R, 2u, 1u, ADDR7_SCD)
 
 /* ==== STCC-4 Commands ==== */
+SC_COMMAND(cmdFactoryReset, STCC_CMD_FACTORY_RESET, C, 0, 90u, ADDR7_STCC)
 SC_COMMAND(cmdPressureSet, STCC_CMD_PRESSURE_SET, W, 2, 1u, ADDR7_STCC)
 SC_COMMAND(cmdRecondition, STCC_CMD_RECONDITION, C, 0, 22000u, ADDR7_STCC)
 SC_COMMAND(cmdSampleReadSTCC, STCC_CMD_SAMPLE_READ, R, 2u, 1u, ADDR7_STCC)
@@ -342,7 +344,7 @@ uint16_t scd4xMeasureCO2(void) {
 
 bool scd4xPresent(void) { return scdID != SCD4x_NONE; }
 
-void stcc4Discover(const uint16_t altitude) {
+void stcc4Discover(const uint16_t altitude, const bool reset) {
   uint8_t rxBuf[18] = {0};
   stccPresent       = false;
 
@@ -360,11 +362,19 @@ void stcc4Discover(const uint16_t altitude) {
   uartPuts("  - STCC...");
 
   if (stccPresent) {
-    uartPuts("\r\n    > Reconditioning... ");
+    if (reset) {
+      uartPuts("\r\n    > Reset. ");
+      cmdExecute(&cmdFactoryReset, NULL);
+    } else {
+      /* Assume >3 hr since last sample on boot so recondition (Section 1.1.13)
+       */
+      uartPuts("\r\n    > Reconditioning. ");
+      cmdExecute(&cmdRecondition, NULL);
+    }
+
     uint16_t pa = convAltitude2Pressure(altitude);
     cmdExecute(&cmdPressureSet, (uint8_t *)&pa);
-    /* Assume >3 hr since last sample on boot so recondition (Section 1.1.13) */
-    cmdExecute(&cmdRecondition, NULL);
+
     cmdExecute(&cmdSleepEnter, NULL);
   }
 

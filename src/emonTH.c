@@ -153,7 +153,7 @@ static void boardSetup(EmonTHConfigPacked_t *pCfg, size_t *tempNum) {
   }
 
   scd4xDiscover(pCfg->scdCfg.altitude);
-  stcc4Discover(pCfg->scdCfg.altitude);
+  stcc4Discover(pCfg->scdCfg.altitude, configSTCC4Reset());
 
   i2cDisable();
 
