@@ -89,9 +89,6 @@ uint8_t spiSendByte(const uint8_t b);
 /*! @brief Disable the UART entirely, setting pins as pulled-up inputs */
 void uartDisable(void);
 
-/*! @brief Disable the UART's Rx channel and interrupt */
-void uartDisableRx(void);
-
 /*! @brief Get a character from the USART data buffer.
  *  @return character in buffer
  */
@@ -119,8 +116,8 @@ void uartPutsBlocking(const char *s);
  */
 void uartPutsNonBlocking(const char *const s, uint32_t len);
 
-/*! @brief Configure the UART peripheral */
-void setupUart(void);
+/*! @brief Disable the UART's Rx channel and interrupt */
+void uartRxDisable(void);
 
-/*! @brief Configure the I2C peripheral */
-void setupI2C(void);
+/*! @brief Enable the UART's Rx channel and interrupt */
+void uartRxEnable(void);

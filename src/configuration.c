@@ -949,6 +949,8 @@ static void configSTCCReset(void) {
   }
 
   stcc4Reset = (1u == convU.val.u8);
+  uartPuts(stcc4Reset ? "> STCC-4 will be reset.\r\n"
+                      : "> STCC-4 will not be reset.\r\n");
 }
 
 /* =======================

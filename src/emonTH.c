@@ -37,7 +37,7 @@ typedef struct TransmitOpt_ {
  *************************************/
 
 static volatile bool     interactiveUart = false;
-static volatile uint32_t ledPulseOvf     = 0;
+static volatile uint32_t ledPulseOvf     = 0u;
 static volatile uint32_t evtPend;
 AssertInfo_t             g_assert_info;
 
@@ -164,6 +164,7 @@ static void boardSetup(EmonTHConfigPacked_t *pCfg, size_t *tempNum) {
 }
 
 static void errorFatal(void) {
+  /* Flash LED at @ 5 Hz; requires full reset to proceed. */
   while (1) {
     timerDelaySleep_ms(100);
     portPinDrv(PIN_LED, PIN_DRV_TGL);
@@ -181,25 +182,26 @@ __attribute__((__unused__)) static void gpioSet(const size_t gpio) {
 }
 
 static void interactiveWait(void) {
-  /* Wait for 5 s with LED flashing @ 2 Hz. Enter configuration mode by pressing
+  /* Wait for 5 s with LED pulsing @ 2 Hz. Enter configuration mode by pressing
    * any key. */
-  uint32_t remain = 4;
+  uint32_t remain = 4u;
 
   uartPuts("> Press any key within 5 seconds to enter "
            "configuration.\r\n");
 
+  uartRxEnable();
   portPinMux(PIN_LED, 0x4);
   portPinCfg(PIN_LED, PORT_PINCFG_PMUXEN, PIN_CFG_SET);
 
   timerSetupLED(&ledPulseOvfIncr);
-  while (ledPulseOvf < (((N_STEPS * 2) * 5)) && !interactiveUart) {
+  while (ledPulseOvf < (((N_STEPS * 2u) * 5u)) && !interactiveUart) {
     samlSleepEnter();
 
-    if (!(ledPulseOvf % (N_STEPS * 2)) && (0 != remain)) {
+    if (!(ledPulseOvf % (N_STEPS * 2u)) && (0 != remain)) {
       char strbuf[4] = {0};
       utilUtoa(strbuf, remain--, ITOA_BASE10);
       uartPuts(strbuf);
-    } else if (!(ledPulseOvf % (N_STEPS / 2))) {
+    } else if (!(ledPulseOvf % (N_STEPS / 2u))) {
       uartPuts(".");
     }
   }
@@ -209,6 +211,8 @@ static void interactiveWait(void) {
   }
 
   uartPuts("\r\n\r\n");
+
+  uartRxDisable();
   timerSetup();
   portPinCfg(PIN_LED, PORT_PINCFG_PMUXEN, PIN_CFG_CLR);
   portPinDrv(PIN_LED, PIN_DRV_CLR);
@@ -343,12 +347,10 @@ static void txOptions(const EmonTHConfigPacked_t *pCfg, TransmitOpt_t *pOpt) {
   case DATATX_UART:
     pOpt->logSerial = true;
     spiDisable();
-    uartDisableRx();
     break;
   case DATATX_BOTH:
     pOpt->useRFM    = true;
     pOpt->logSerial = true;
-    uartDisableRx();
     break;
   default:
     pOpt->useRFM = true;
