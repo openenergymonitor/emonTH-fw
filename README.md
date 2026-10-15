@@ -73,6 +73,7 @@ The following options are available through the serial configuration interface.
 | `d<n>` | Set the data acquisition period | `n`: period value |
 | `e<n>` | Set the number of external temperature sensors | `0`, `1`, or `4` |
 | `f` | Exit configuration mode and continue boot | None |
+| `g` | Set the RF group ID | `[0..255]` |
 | `j<n>` | Enable JSON serial format | `0`: off, `1`: on |
 | `l` | List settings as key/value pairs | None |
 | `lh` | List settings in human readable form | None |

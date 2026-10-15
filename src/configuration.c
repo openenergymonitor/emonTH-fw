@@ -41,6 +41,7 @@ static void        configCO2(void);
 static void        configDatalog(void);
 static void        configDefault(void);
 static void        configExtTempMax(void);
+static void        configGroupID(void);
 static void        configJSON(void);
 static bool        configProcessCmd(void);
 static void        configPulse(void);
@@ -162,6 +163,22 @@ static void configExtTempMax(void) {
   }
 
   config.baseCfg.extTempEn = convU.val.u8;
+}
+
+static void configGroupID(void) {
+  if (1u != cmdArgs.argc) {
+    uartPutsError("unexpected arguments");
+    return;
+  }
+
+  ConvUint_t convU = utilAtoui(cmdArgs.argv[0] + 1, ITOA_BASE10);
+  if (!convU.valid) {
+    printInvalidVal();
+    return;
+  }
+
+  config.baseCfg.dataGrp = convU.val.u8;
+  printSettingRF();
 }
 
 static void configJSON(void) {
@@ -802,6 +819,7 @@ static bool configProcessCmd(void) {
       " - e<n>          : number of external temperature sensors (0, 1, or "
       "4)\r\n"
       " - f             : exit, lock, and continue\r\n"
+      " - g<n>          : set network group (default = 210)\r\n"
       " - j<n>          : JSON serial format. n = 0: OFF, n = 1: ON\r\n"
       " - l             : list settings (key / value)\r\n"
       " - lh            : list settings (human readable)\r\n"
@@ -870,6 +888,9 @@ static bool configProcessCmd(void) {
     if (requireExactArgs(1u)) {
       exitConfig = true;
     }
+    break;
+  case 'g':
+    configGroupID();
     break;
   case 'j':
     configJSON();
